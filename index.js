@@ -1,72 +1,67 @@
-const express = require('express')
-const app = express()
-const cors = require('cors')
-require('dotenv').config()
+const express = require('express');
+const app = express();
+const cors = require('cors');
+require('dotenv').config();
 const mongoose = require('mongoose');
 
-// Import models
-const Exercise = require('./models/Exercise');
-const User = require('./models/User');
-
-// Connect to MongoDB Atlas
-mongoose.connect(process.env.MONGO_URI)
-  .then(() => {
-    console.log('✅ Connected to MongoDB Atlas');
-  })
-  .catch(err => {
-    console.error('❌ Failed to connect to MongoDB', err);
-  });
-
-// Middleware
-app.use(cors())
-app.use(express.urlencoded({ extended: false }))
-app.use(express.json());
-app.use(express.static('public'))
-
-// Serve the HTML page
-app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/views/index.html')
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+}).then(() => {
+  console.log('✅ Connected to MongoDB Atlas');
+}).catch((err) => {
+  console.error('❌ Failed to connect to MongoDB', err);
 });
 
-// Route to create a new user
+// Load models
+const User = require('./models/User');
+const Exercise = require('./models/Exercise');
+
+// Middleware
+app.use(cors());
+app.use(express.urlencoded({ extended: false })); // Accept form data
+app.use(express.json());
+app.use(express.static('public'));
+
+// Serve HTML page
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/views/index.html');
+});
+
+// Route: Create new user
 app.post('/api/users', async (req, res) => {
   try {
     const { username } = req.body;
-    const newUser = new User({ username});
+    const newUser = new User({ username });
     const savedUser = await newUser.save();
-    res.json({
-      username: savedUser.username,
-      _id: savedUser._id
-    });
+    res.json({ username: savedUser.username, _id: savedUser._id });
   } catch (err) {
-    res.status(500).json({ error: 'Error creating user' })
+    res.status(500).json({ error: 'Error creating user' });
   }
-})
+});
 
-// Route to get all the users(GET /api/users)
+// Route: Get all users
 app.get('/api/users', async (req, res) => {
   try {
-    const users = await User.find({}, 'username _id') // only select username and _id
-    res.json(users)
+    const users = await User.find({}, 'username _id');
+    res.json(users);
   } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch users'})
+    res.status(500).json({ error: 'Error fetching users' });
   }
-})
+});
 
-// Route to add exercise
+// Route: Add exercise to user
 app.post('/api/users/:_id/exercises', async (req, res) => {
   try {
     const userId = req.params._id;
     const { description, duration, date } = req.body;
 
-    // Find the user by ID
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Format the date, default to today's date if empty
+    // Parse and format date
     const exerciseDate = date ? new Date(date) : new Date();
-
-    // Create and save new exercise
     const exercise = new Exercise({
       userId,
       description,
@@ -76,11 +71,10 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
 
     const savedExercise = await exercise.save();
 
-    // Send response
     res.json({
       _id: user._id,
       username: user.username,
-      date: savedExercise.date.toDateString(),
+      date: savedExercise.date.toDateString(), // Must be string format
       duration: savedExercise.duration,
       description: savedExercise.description
     });
@@ -89,48 +83,47 @@ app.post('/api/users/:_id/exercises', async (req, res) => {
   }
 });
 
-// Route to get exercise logs of a user
-// GET /api/users/:_id/logs?from&to&limit
+// Route: Get user's exercise logs
 app.get('/api/users/:_id/logs', async (req, res) => {
   try {
     const userId = req.params._id;
     const { from, to, limit } = req.query;
 
-    // Find the user by ID
     const user = await User.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Build query object for exercises
-    const query = { userId };
-    const dateFilter = {};
-    if (from) dateFilter.$gte = new Date(from);
-    if (to) dateFilter.$lte = new Date(to);
-    if (from || to) query.date = dateFilter;
+    // Build query filter
+    let filter = { userId };
+    if (from || to) {
+      filter.date = {};
+      if (from) filter.date.$gte = new Date(from);
+      if (to) filter.date.$lte = new Date(to);
+    }
 
-    // Find exercises matching the filters
-    const exercises = await Exercise.find(query)
-      .limit(parseInt(limit) || 0)
-      .select('description duration date');
+    // Fetch exercises with optional limit
+    const exercises = await Exercise.find(filter)
+      .limit(parseInt(limit) || 0);
 
-    // Format the exercises for the response
-    const formattedExercises = exercises.map(ex => ({
+    // Format exercises array
+    const log = exercises.map((ex) => ({
       description: ex.description,
       duration: ex.duration,
-      date: ex.date.toDateString()
+      date: ex.date.toDateString() // Must be string
     }));
 
     res.json({
       _id: user._id,
       username: user.username,
-      count: formattedExercises.length,
-      log: formattedExercises
+      count: log.length,
+      log
     });
   } catch (err) {
-    res.status(500).json({ error: 'Error fetching exercise logs' });
+    res.status(500).json({ error: 'Error fetching logs' });
   }
 });
 
 // Start the server
 const listener = app.listen(process.env.PORT || 3000, () => {
-  console.log('Your app is listening on port ' + listener.address().port)
-})
+  console.log('Your app is listening on port ' + listener.address().port);
+});
+
